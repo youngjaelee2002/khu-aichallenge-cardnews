@@ -1,0 +1,14 @@
+{
+  "name": "카드뉴스 가져오기",
+  "id": "cardnews-importer-local",
+  "api": "1.0.0",
+  "main": "code.js",
+  "ui": "ui.html",
+  "editorType": ["figma"],
+  "documentAccess": "dynamic-page",
+  "networkAccess": {
+    "allowedDomains": ["none"],
+    "devAllowedDomains": ["http://localhost:8765"],
+    "reasoning": "같은 컴퓨터에서 실행 중인 카드뉴스 제작기(server.py)에서 만들 카드뉴스를 받아온다."
+  }
+}

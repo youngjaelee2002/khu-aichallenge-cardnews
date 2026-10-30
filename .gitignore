@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.claude/
+카드뉴스_피그마용*.json
+카드뉴스*.zip
+
+# 시연 영상과 캡처 작업 파일 (GitHub는 100MB 넘는 파일을 받지 않는다)
+*.mp4
+*.mov
+*.mkv
+*.avi
+*.webm
+captures/

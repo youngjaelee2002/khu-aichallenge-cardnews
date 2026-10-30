@@ -1,0 +1,133 @@
+<meta charset="utf-8">
+<style>
+  body { font: 13px/1.5 Inter, Pretendard, "Malgun Gothic", sans-serif; margin: 16px; color: #2b2925; }
+  h1 { font-size: 14px; margin: 0 0 4px; }
+  p { margin: 0 0 12px; color: #7a746b; }
+  .link { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 8px; background: #f4f1ec; margin-bottom: 12px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #c9c2b7; flex: none; }
+  .dot.on { background: #3c9a5f; }
+  .dot.busy { background: #d49a2a; }
+  .link small { display: block; color: #7a746b; }
+  details { margin-bottom: 12px; }
+  summary { cursor: pointer; color: #7a746b; }
+  .drop { border: 1.5px dashed #c9c2b7; border-radius: 8px; padding: 16px 12px; text-align: center; cursor: pointer; color: #7a746b; margin-top: 8px; }
+  .drop.over { border-color: #6f675d; background: #efebe4; }
+  .info { min-height: 20px; }
+  .err { color: #b4542b; }
+</style>
+
+<h1>카드뉴스 가져오기</h1>
+<p>웹 제작기에서 "피그마로 보내기"를 누르면 템플릿(3-0, 3-1, 3-7)을 복제해서 자동으로 채웁니다. 이 창을 켜 두세요.</p>
+
+<div class="link">
+  <span class="dot" id="dot"></span>
+  <div><b id="linkTitle">웹 제작기 찾는 중…</b><small id="linkSub"></small></div>
+</div>
+
+<div class="info" id="info"></div>
+
+<details>
+  <summary>json 파일로 넣기</summary>
+  <div class="drop" id="drop">카드뉴스_피그마용.json을 끌어다 놓거나 클릭</div>
+  <input type="file" id="file" accept=".json,application/json" hidden>
+</details>
+
+<script>
+  const SERVER = 'http://localhost:8765';
+  const POLL_MS = 1500;
+  const $ = id => document.getElementById(id);
+  let lastId = null;   // 플러그인을 켜기 전에 보낸 작업은 다시 만들지 않는다
+  let busy = false;
+
+  const toBytes = dataUrl => {
+    const bin = atob(dataUrl.split(',')[1]);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  };
+
+  function setLink(state, title, sub = '') {
+    $('dot').className = 'dot ' + state;
+    $('linkTitle').textContent = title;
+    $('linkSub').textContent = sub;
+  }
+
+  function setInfo(text, isError = false) {
+    $('info').textContent = text;
+    $('info').className = isError ? 'info err' : 'info';
+  }
+
+  function build(json) {
+    if (!Array.isArray(json.slides) || !json.template) throw new Error('카드뉴스 제작기 데이터가 아니에요.');
+    for (const s of json.slides) {
+      if (s.photo) s.photo = toBytes(s.photo);
+      if (s.photos) s.photos = s.photos.map(p => p ? toBytes(p) : null);
+    }
+    busy = true;
+    setLink('busy', '피그마로 넘기는 중…', `${json.slides.length}장`);
+    watchStall();
+    parent.postMessage({ pluginMessage: { type: 'build', data: json } }, '*');
+  }
+
+  async function poll() {
+    if (!busy) {
+      try {
+        if (lastId === null) {
+          const s = await (await fetch(`${SERVER}/api/status`)).json();
+          lastId = s.lastId;
+        }
+        const res = await fetch(`${SERVER}/api/job?after=${lastId}`);
+        setLink('on', '웹 제작기와 연결됨', '"피그마로 보내기"를 기다리는 중');
+        if (res.status === 200) {
+          const { id, data } = await res.json();
+          lastId = id;
+          setInfo('');
+          try { build(data); } catch (e) { busy = false; setInfo(e.message, true); }
+        }
+      } catch (e) {
+        setLink('', '웹 제작기가 꺼져 있어요', '"카드뉴스 제작기 실행"을 켜면 자동으로 연결됩니다');
+      }
+    }
+    setTimeout(poll, POLL_MS);
+  }
+
+  async function readFile(file) {
+    try {
+      build(JSON.parse(await file.text()));
+    } catch (e) {
+      setInfo(e.message, true);
+    }
+  }
+
+  $('drop').onclick = () => $('file').click();
+  $('file').onchange = () => $('file').files[0] && readFile($('file').files[0]);
+  $('drop').ondragover = e => { e.preventDefault(); $('drop').classList.add('over'); };
+  $('drop').ondragleave = () => $('drop').classList.remove('over');
+  $('drop').ondrop = e => { e.preventDefault(); $('drop').classList.remove('over'); e.dataTransfer.files[0] && readFile(e.dataTransfer.files[0]); };
+
+  // 한동안 진행 소식이 없으면 멈춘 것으로 보고 안내한다
+  let stallTimer = null;
+  function watchStall() {
+    clearTimeout(stallTimer);
+    stallTimer = setTimeout(() => {
+      setInfo('진행이 멈춘 것 같아요. 오른쪽 클릭 → 플러그인 → 개발 → 콘솔 보기에서 빨간 오류를 캡처해 주세요.', true);
+      busy = false;
+    }, 60000);
+  }
+
+  onmessage = e => {
+    const msg = e.data.pluginMessage;
+    if (!msg) return;
+    if (msg.type === 'progress') {
+      setLink('busy', msg.text);
+      watchStall();
+      return;
+    }
+    clearTimeout(stallTimer);
+    busy = false;
+    if (msg.type === 'done') setInfo(`완료: ${msg.count}장을 새 섹션에 만들었어요.${msg.fontNote || ''}`);
+    if (msg.type === 'error') setInfo(msg.message, true);
+  };
+
+  poll();
+</script>
